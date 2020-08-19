@@ -189,3 +189,157 @@ plt.show()
 
 当池化窗口在图片上滑动时，会得到整张输出特征图。池化窗口的大小称为池化大小，用 k_h * k_w 表示。在卷积神经网络中用的比较多的是窗口大小为2×2，步幅为2的池化。此外，步幅等定义也与卷积核类似
 
+
+# ReLu激活函数
+
+在神经网络发展的早期，Sigmoid函数用的比较多，而目前用的较多的激活函数是ReLU。这是因为Sigmoid函数在反向传播过程中，**容易造成梯度的衰减**。
+
+Relu函数在 x<0 时恒为 0，在 x>0 时为 x。
+
+#### 梯度消失现象
+
+在神经网络里面，将经过反向传播之后，梯度值衰减到接近于零的现象称作梯度消失现象。当x为较大的正数。或较小的负数的时候，Sigmoid函数值非常接近于 0，导数也接近于 0。由于最开始是将神经网络的参数随机初始化的，x很有可能取值在数值很大或者很小的区域，如果有多层网络使用了Sigmoid激活函数，则比较靠后的那些层梯度将衰减到非常小的值。
+
+ReLU函数则不同，虽然在 x<0 的地方，ReLU函数的导数为 0。但是在 x≥0 的地方，ReLU函数的导数为 1，能够将y的梯度完整的传递给 x，而不会引起梯度消失。
+
+
+# 批归一化 Batch Normalization
+
+目的是对神经网络中间层的输出进行**标准化处理**，使得中间层的输出**更加稳定**。
+
+通常我们会对神经网络的数据进行标准化处理，处理后的样本数据集满足**均值为0，方差为1**的统计分布，这是因为当输入数据的分布比较固定时，有利于算法的稳定和收敛。对于深度神经网络来说，由于参数是不断更新的，即使输入数据已经做过标准化处理，但是*对于比较靠后的那些层，其接收到的输入仍然是剧烈变化的，通常会导致数值不稳定，模型很难收敛*。BatchNorm能够使神经网络中间层的输出变得更加稳定，并有如下三个优点：
+
+- 使学习快速进行（能够使用较大的学习率）
+
+- 降低模型对初始值的敏感性
+
+- 从一定程度上抑制过拟合
+
+BatchNorm主要思路是在训练时按mini-batch为单位，对神经元的数值进行归一化，使数据的分布满足均值为0，方差为1。
+
+1. 计算mini-batch内样本的均值。对每个特征分别计算mini-batch内样本的均值。
+1. 计算mini-batch内样本的方差。
+1. 计算标准化之后的输出。减去平均值，除以标准差（可能需要加上一个小量防止为0）
+
+两个示例：
+```
+# 输入数据形状是 [N, K]时的示例
+import numpy as np
+
+import paddle
+import paddle.fluid as fluid
+from paddle.fluid.dygraph.nn import BatchNorm
+# 创建数据
+data = np.array([[1,2,3], [4,5,6], [7,8,9]]).astype('float32')
+# 使用BatchNorm计算归一化的输出
+with fluid.dygraph.guard():
+    # 输入数据维度[N, K]，num_channels等于K
+    bn = BatchNorm(num_channels=3)    
+    x = fluid.dygraph.to_variable(data)
+    y = bn(x)
+    print('output of BatchNorm Layer: \n {}'.format(y.numpy()))
+
+# 使用Numpy计算均值、方差和归一化的输出
+# 这里对第0个特征进行验证
+a = np.array([1,4,7])
+a_mean = a.mean()
+a_std = a.std()
+b = (a - a_mean) / a_std
+print('std {}, mean {}, \n output {}'.format(a_mean, a_std, b))
+
+# 建议读者对第1和第2个特征进行验证，观察numpy计算结果与paddle计算结果是否一致
+```
+
+```
+# 输入数据形状是[N, C, H, W]时的batchnorm示例
+import numpy as np
+
+import paddle
+import paddle.fluid as fluid
+from paddle.fluid.dygraph.nn import BatchNorm
+
+# 设置随机数种子，这样可以保证每次运行结果一致
+np.random.seed(100)
+# 创建数据
+data = np.random.rand(2,3,3,3).astype('float32')
+# 使用BatchNorm计算归一化的输出
+with fluid.dygraph.guard():
+    # 输入数据维度[N, C, H, W]，num_channels等于C
+    bn = BatchNorm(num_channels=3)
+    x = fluid.dygraph.to_variable(data)
+    y = bn(x)
+    print('input of BatchNorm Layer: \n {}'.format(x.numpy()))
+    print('output of BatchNorm Layer: \n {}'.format(y.numpy()))
+
+# 取出data中第0通道的数据，
+# 使用numpy计算均值、方差及归一化的输出
+a = data[:, 0, :, :]
+a_mean = a.mean()
+a_std = a.std()
+b = (a - a_mean) / a_std
+print('channel 0 of input data: \n {}'.format(a))
+print('std {}, mean {}, \n output: \n {}'.format(a_mean, a_std, b))
+
+# 提示：这里通过numpy计算出来的输出
+# 与BatchNorm算子的结果略有差别，
+# 因为在BatchNorm算子为了保证数值的稳定性，
+# 在分母里面加上了一个比较小的浮点数epsilon=1e-05
+```
+
+#### 预测时使用BatchNorm
+
+上面介绍了在训练过程中使用BatchNorm对一批样本进行归一化的方法，但如果使用同样的方法对需要预测的一批样本进行归一化，则预测结果会出现不确定性。在BatchNorm的具体实现中，训练时会计算均值和方差的移动平均值。
+
+
+# 丢弃法 Dropout
+
+丢弃法（Dropout）是深度学习中一种常用的抑制过拟合的方法，其做法是在神经网络学习过程中，随机删除一部分神经元。训练时，随机选出一部分神经元，将其输出设置为0，这些神经元将不对外传递信号。
+
+在预测场景时，会向前传递所有神经元的信号，可能会引出一个新的问题：训练时由于部分神经元被随机丢弃了，输出数据的总大小会变小。可采用以下两种方法：
+
+- **downgrade_in_infer**：训练时以比例 r 随机丢弃一部分神经元，不向后传递它们的信号；预测时向后传递所有神经元的信号，但是将每个神经元上的数值乘以 (1−r)。
+- **upscale_in_train**：训练时以比例 r 随机丢弃一部分神经元，不向后传递它们的信号，但是将那些被保留的神经元上的数值除以 (1−r)；预测时向后传递所有神经元的信号，不做任何处理。
+
+paddle默认为前者。其 dropout API 包含的主要参数如下：
+
+- x （Variable）- 数据类型是Tensor，需要采用丢弃法进行操作的对象。
+- dropout_prob (float32) - 对 x 中元素进行丢弃的概率，即输入单元设置为0的概率，该参数对元素的丢弃概率是针对于每一个元素而言而不是对所有的元素而言。举例说，假设矩阵内有12个数字，经过概率为0.5的dropout未必一定有6个零。
+- is_test (bool) - 是否运行在测试阶段，由于dropout在训练和测试阶段表现不一样，通过此参数控制其表现，默认值为'False'。
+- dropout_implementation (str) - 丢弃法的实现方式，有'downgrade_in_infer'和'upscale_in_train'两种，具体情况请见上面的说明，默认是'downgrade_in_infer'。
+
+
+下面这段程序展示了经过dropout之后输出数据的形式。
+
+```
+# dropout操作
+import numpy as np
+
+import paddle
+import paddle.fluid as fluid
+
+# 设置随机数种子，这样可以保证每次运行结果一致
+np.random.seed(100)
+# 创建数据[N, C, H, W]，一般对应卷积层的输出
+data1 = np.random.rand(2,3,3,3).astype('float32')
+# 创建数据[N, K]，一般对应全连接层的输出
+data2 = np.arange(1,13).reshape([-1, 3]).astype('float32')
+# 使用dropout作用在输入数据上
+with fluid.dygraph.guard():
+    x1 = fluid.dygraph.to_variable(data1)
+    out1_1 = fluid.layers.dropout(x1, dropout_prob=0.5, is_test=False)
+    out1_2 = fluid.layers.dropout(x1, dropout_prob=0.5, is_test=True)
+
+    x2 = fluid.dygraph.to_variable(data2)
+    out2_1 = fluid.layers.dropout(x2, dropout_prob=0.5, \
+                    dropout_implementation='upscale_in_train')
+    out2_2 = fluid.layers.dropout(x2, dropout_prob=0.5, \
+                    dropout_implementation='upscale_in_train', is_test=True)
+    
+    print('x1 {}, \n out1_1 \n {}, \n out1_2 \n {}'.format(data1, out1_1.numpy(),  out1_2.numpy()))
+    print('x2 {}, \n out2_1 \n {}, \n out2_2 \n {}'.format(data2, out2_1.numpy(),  out2_2.numpy()))
+```
+
+
+
+
+
